@@ -25,7 +25,7 @@ class Forest(object):
 
     def route(self, uri, base=None):
         def handler(_handler):
-            Router.add(handler, uri, base)
+            Router.add(_handler, uri, base)
             return _handler
         return handler
 

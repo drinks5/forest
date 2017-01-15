@@ -123,8 +123,6 @@ cdef class HttpProtocolMixin:
         try:
             keep_alive = self.parser.should_keep_alive() \
                             and not self.signal.stopped
-            from .response import text
-            response = text(response)
             self.transport.write(
                 response.output(
                     self.request.version, keep_alive, self.request_timeout))

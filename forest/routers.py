@@ -1,11 +1,12 @@
 from collections import namedtuple
 from urllib.parse import urlparse
+import re
 
 from .utils import log
 Route = namedtuple('Route', ('handler', 'uri', 'base'))
 
 
-class Router:
+class Router(object):
 
     maps = {}
 
@@ -28,8 +29,26 @@ class Router:
 
         return route.handler
 
-    # @classmethod
-    # def from_base(cls, uri, base):
-    #     if not uri:
-    #         raise RouterError('no base for uri:%s' % uri)
-    #     if not gg
+    def __call__(self, path, name):
+        def inner(func):
+            return func
+
+        return inner
+
+
+pattern = re.compile(r'\{(.*?)\}')
+
+
+def regexp(tpl, matchHost, matchPrefix, matchQuery, strictSlash, useEncodedPath):
+
+    defaultPattern = "[^/]+"
+    if matchQuery:
+        defaultPattern = "[^?&]*"
+    elif matchHost:
+        defaultPattern = "[^.]+"
+        matchPrefix = False
+    # Only match strict slash if not matching
+    if matchPrefix or matchHost or matchQuery:
+        strictSlash = False
+    # Set a flag for strictSlash.
+

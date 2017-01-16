@@ -1,6 +1,9 @@
 .PHONY: clean-pyc clean-build docs clean
 
-develop:clean-pyc install test
+develop:clean-pyc install tmp_test
+
+tmp_test:
+	python tests/test_router.py
 
 install:
 	python setup.py install

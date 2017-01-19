@@ -9,7 +9,7 @@ class Request:
     # def __init__(self, bytes url_bytes, object  headers, str version, object method):
     def __init__(self, url_bytes, headers, version, method):
         url_parsed = parse_url(url_bytes)
-        self.path = url_parsed.path
+        self.path = url_parsed.path.decode('utf8')
         self.headers = headers
         self.version = version
         self.method = method

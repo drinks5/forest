@@ -1,7 +1,6 @@
 import re
 from math import ceil
 from urllib.parse import urlparse, quote
-from .utils import log
 from .response import text
 
 
@@ -9,10 +8,10 @@ class RouteMatch:
     def __init__(self):
         self.route = None
         self.handler = None
-        self.vars = None
+        self.vars = []
 
 
-def not_found(request):
+async def not_found(request):
     print('not foond !!')
     print(str(request))
     return text(request)
@@ -30,6 +29,7 @@ class Router:
     def register(self, path: str, handler):
         route = Route(self, handler).path(path)
         self.routes.append(route)
+        return route
 
     def match(self, request, match: RouteMatch) -> bool:
         for route in self.routes:
@@ -46,8 +46,11 @@ class Router:
             handler = match.handler
         if not handler:
             handler = self.not_found
-        response = handler(request)
-        log.info('response: %s' % response)
+        try:
+            response = await handler(request, *match.vars)
+        except Exception as e:
+            print(e)
+            response = text('error')
         return response_writer(response)
 
     def getRegexpGroup(self):
@@ -61,6 +64,9 @@ class RouteRegexpGroup:
         host = None
         path = None
         queries = None
+
+    def setMatch(self, request, match: RouteMatch, route):
+        pass
 
 
 class Route:
@@ -106,6 +112,12 @@ class Route:
             match.route = self
         if not match.handler:
             match.handler = self.handler
+        if not match.vars:
+            vars = m.regexp.findall(request.path)
+            if vars:
+                match.vars = vars[0]
+        if self.regexp:
+            self.regexp.setMatch(request, match, self)
         return True
 
 
@@ -119,7 +131,8 @@ class RouteRegexp:
 
     def match(self, request, match: RouteMatch) -> bool:
         path = request.path
-        return self.regexp.match(path.decode('utf8'))
+        return self.regexp.match(path)
+
 
 
 def regexp(tpl: str,

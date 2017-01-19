@@ -9,14 +9,15 @@ from .exceptions import *
 from .utils import log
 from .response import text
 
+
 class CIMultiDict(dict):
     pass
 
+
 class HttpProtocolMixin:
-    def __init__(self, *, object loop, object router, object signal):
+    def __init__(self, *, loop, router, signal):
         self.loop = loop
         self.parser = HttpRequestParser(self)
-        log.info('load parse: %s' % self.parser)
         self.router = router
         self.signal = signal
         self.connections = set()
@@ -29,16 +30,14 @@ class HttpProtocolMixin:
         self.request_max_size = 65535
 
 
-    def connection_made(self, object transport):
-        log.info('connection_made: {}'.format(transport))
+    def connection_made(self, transport):
         self.connections.add(self)
         # self._timeout_handler = self.loop.call_later(
         #     self.request_timeout, self.connection_timeout)
         self.transport = transport
         self._last_request_time = self.update_time
 
-    def connection_lost(self, object exc):
-        log.info('connection_lost', exc)
+    def connection_lost(self, exc):
         self.connections.discard(self)
         # self._timeout_handler.cancel()
         self.cleanup()
@@ -46,7 +45,6 @@ class HttpProtocolMixin:
     def connection_timeout(self):
         # Check if
         time_elapsed = self.update_time - self._last_request_time
-        log.info('time_elapsed:', time_elapsed)
         if time_elapsed < self.request_timeout:
             time_left = self.request_timeout - time_elapsed
             self._timeout_handler = \
@@ -58,7 +56,6 @@ class HttpProtocolMixin:
             self.write_error(exception)
 
     def data_received(self, data):
-        log.info('data_received:', data)
         # Check for the request itself getting too large and exceeding
         # memory limits
         self._total_request_size += len(data)
@@ -72,20 +69,16 @@ class HttpProtocolMixin:
             self.headers = []
             self.parser = HttpRequestParser(self)
 
-        # Parse request chunk or close connection
-        log.info('find parser %s' % dir(self.parser))
         try:
             self.parser.feed_data(data)
         except HttpParserError:
             exception = InvalidUsage('Bad Request')
             self.write_error(exception)
 
-    def on_url(self, bytes url):
-        log.info('on_url:', url)
+    def on_url(self, url):
         self.url = url
 
-    def on_header(self, bytes name, bytes value):
-        log.info('on_header:', name, value)
+    def on_header(self, name, value):
         if name == b'Content-Length' and int(value) > self.request_max_size:
             exception = PayloadTooLarge('Payload Too Large')
             self.write_error(exception)
@@ -104,14 +97,13 @@ class HttpProtocolMixin:
             method=self.parser.get_method().decode()
         )
 
-    def on_body(self, bytes body):
+    def on_body(self, body):
         if self.request.body:
             self.request.body += body
         else:
             self.request.body = body
 
     def on_message_complete(self):
-        log.info('on_message_complete:', self.request)
         self._request_handler_task = self.loop.create_task(
                 self.router.handler(self.request, self.response_writer))
 
@@ -120,17 +112,12 @@ class HttpProtocolMixin:
     # -------------------------------------------- #
 
     def response_writer(self, response):
-        log.info('response_writer:', response)
         try:
-            keep_alive = self.parser.should_keep_alive() \
-                            and not self.signal.stopped
-            print(dir(response), response)
+            keep_alive = self.parser.should_keep_alive() and not self.signal.stopped
             self.transport.write(
                 response.output(
                     self.request.version, keep_alive, self.request_timeout))
             if not keep_alive:
-                log.info('transport closed!')
-                print('transport closed!')
                 self.transport.close()
             else:
                 # Record that we received data
@@ -143,8 +130,6 @@ class HttpProtocolMixin:
                 "Writing response failed, connection closed {}".format(e))
 
     def write_error(self, exception):
-        log.info('write_error:', exception)
-        print('write_error:', exception)
         try:
             response = text(str(exception))
 
@@ -156,7 +141,6 @@ class HttpProtocolMixin:
                 "Writing error failed, connection closed {}".format(e))
 
     def bail_out(self, message):
-        log.info('bail_out:' +  message)
         exception = ServerError(message)
         self.write_error(exception)
         log.error(message)

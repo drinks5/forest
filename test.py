@@ -4,7 +4,7 @@ app = Forest()
 
 
 @app.route('/')
-def views(request):
+async def views(request):
     return text('hello world!')
 
 

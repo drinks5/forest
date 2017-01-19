@@ -3,15 +3,18 @@
 develop:clean-pyc install tmp_test
 
 tmp_test:
-	python tests/test.py
+	python test.py
 
 install:
 	python setup.py install
 
+uninstall:
+	pip uninstall -y forest
+
 test:
 	python tests/test.py
 
-clean: clean-pyc clean-test
+clean: clean-pyc
 
 clean-pyc:
 	find . -name '*.pyc' -exec rm -f {} +
@@ -19,3 +22,6 @@ clean-pyc:
 	find . -name '*~' -exec rm -f {} +
 	find . -name '__pycache__' -exec rm -fr {} +
 	find . -name '*.c' -exec rm -f {} +
+	find . -name '*.so' -exec rm -f {} +
+	rm -rf build
+	rm -rf dist 

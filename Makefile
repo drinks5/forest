@@ -3,7 +3,7 @@
 develop:clean-pyc install tmp_test
 
 tmp_test:
-	python tests/test_router.py
+	python tests/test.py
 
 install:
 	python setup.py install

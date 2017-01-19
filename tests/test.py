@@ -1,10 +1,12 @@
-from forest import Forest
-from forest import text
+from forest import Forest, text, Router
 
 app = Forest()
 
 
-@app.route('/')
+router = Router()
+
+
+@router('/')
 def views(request):
     return text('hello world!')
 

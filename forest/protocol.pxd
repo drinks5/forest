@@ -3,7 +3,7 @@ from .handler import Handler
 cdef class HttpProtocolMixin:
     cdef:
         object loop
-        object handler
+        object router
         object signal
         set connections
         int request_timeout

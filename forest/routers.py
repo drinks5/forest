@@ -1,6 +1,8 @@
 import re
 from math import ceil
 from urllib.parse import urlparse, quote
+from .utils import log
+from .response import text
 
 
 class RouteMatch:
@@ -9,9 +11,12 @@ class RouteMatch:
         self.handler = None
         self.vars = None
 
-def not_found(request, response_writer):
+
+def not_found(request):
+    print('not foond !!')
     print(str(request))
-    return str(request)
+    return text(request)
+
 
 class Router:
     parent = None
@@ -22,15 +27,9 @@ class Router:
         self.namedRoutes = dict()
         self.not_found = not_found
 
-    def __call__(self, path: str):
-        def inner(handler):
-            route = Route(self).path(path)
-            route.handler = handler
-
-            self.routes.append(route)
-            return handler
-
-        return inner
+    def register(self, path: str, handler):
+        route = Route(self, handler).path(path)
+        self.routes.append(route)
 
     def match(self, request, match: RouteMatch) -> bool:
         for route in self.routes:
@@ -41,13 +40,15 @@ class Router:
             return True
         return False
 
-    def handler(self, request, response_writer):
+    async def handler(self, request, response_writer):
         match = RouteMatch()
         if self.match(request, match):
             handler = match.handler
         if not handler:
             handler = self.not_found
-        return handler(request, response_writer)
+        response = handler(request)
+        log.info('response: %s' % response)
+        return response_writer(response)
 
     def getRegexpGroup(self):
         if self.parent:
@@ -63,11 +64,11 @@ class RouteRegexpGroup:
 
 
 class Route:
-    def __init__(self, router: Router):
+    def __init__(self, router: Router, handler):
         self.parent = router
         self.strictSlash = router.strictSlash
         self.matchers = []
-        self.handler = None
+        self.handler = handler
         self.regexp = None
 
     def path(self, tpl):
@@ -118,7 +119,7 @@ class RouteRegexp:
 
     def match(self, request, match: RouteMatch) -> bool:
         path = request.path
-        return self.regexp.match(path)
+        return self.regexp.match(path.decode('utf8'))
 
 
 def regexp(tpl: str,

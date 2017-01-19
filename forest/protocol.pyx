@@ -7,16 +7,17 @@ from datetime import datetime
 from .request import Request
 from .exceptions import *
 from .utils import log
+from .response import text
 
 class CIMultiDict(dict):
     pass
 
-cdef class HttpProtocolMixin:
-    def __cinit__(self, *, object loop, object handler, object signal):
+class HttpProtocolMixin:
+    def __init__(self, *, object loop, object router, object signal):
         self.loop = loop
         self.parser = HttpRequestParser(self)
         log.info('load parse: %s' % self.parser)
-        self.handler = handler
+        self.router = router
         self.signal = signal
         self.connections = set()
         self.request_timeout = 0
@@ -112,21 +113,24 @@ cdef class HttpProtocolMixin:
     def on_message_complete(self):
         log.info('on_message_complete:', self.request)
         self._request_handler_task = self.loop.create_task(
-            self.handler.request(self.request, self.write_response))
+                self.router.handler(self.request, self.response_writer))
 
     # -------------------------------------------- #
     # Responding
     # -------------------------------------------- #
 
-    def write_response(self, response):
-        log.info('write_response:', response)
+    def response_writer(self, response):
+        log.info('response_writer:', response)
         try:
             keep_alive = self.parser.should_keep_alive() \
                             and not self.signal.stopped
+            print(dir(response), response)
             self.transport.write(
                 response.output(
                     self.request.version, keep_alive, self.request_timeout))
             if not keep_alive:
+                log.info('transport closed!')
+                print('transport closed!')
                 self.transport.close()
             else:
                 # Record that we received data
@@ -140,8 +144,9 @@ cdef class HttpProtocolMixin:
 
     def write_error(self, exception):
         log.info('write_error:', exception)
+        print('write_error:', exception)
         try:
-            response = self.handler.error(self.request, exception)
+            response = text(str(exception))
 
             version = self.request.version if self.request else '1.1'
             self.transport.write(response.output(version))

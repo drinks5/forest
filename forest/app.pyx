@@ -1,4 +1,4 @@
-from functools import partial
+from functools import partial, wraps
 
 import asyncio
 
@@ -22,11 +22,15 @@ class Forest(object):
     def __init__(self):
         self.request_middleware = []
         self.response_middleware = []
+        self.router = Router()
 
-    def route(self, uri, base=None):
+    def route(self, path):
         def handler(_handler):
-            Router.add(_handler, uri, base)
-            return _handler
+            @wraps(_handler)
+            def inner(*args, **kwargs):
+                return _handler(*args, **kwargs)
+            self.router.register(path, handler)
+            return inner
         return handler
 
     def run(self):
@@ -40,7 +44,7 @@ class Forest(object):
         server = partial(
             HttpProtocol,
             loop=loop,
-            handler=Handler(),
+            router=self.router,
             signal=signal)
         host = '127.0.0.1'
         port = 8000

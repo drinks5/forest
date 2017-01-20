@@ -3,8 +3,8 @@ from forest import Forest, text
 app = Forest()
 
 
-@app.route('/')
-async def views(request):
+@app.route('/articles/{category}/{id:[0-9]+}')
+async def views(request, category, id):
     return text('hello world!')
 
 

@@ -1,18 +1,16 @@
 import re
-from math import ceil
-from urllib.parse import urlparse, quote
+from functools import lru_cache
 from .response import text
 
 
 class RouteMatch:
     def __init__(self):
-        self.route = None
         self.handler = None
         self.vars = []
 
 
-async def not_found(request):
-    print('not foond !!')
+async def not_found(request, *args, **kwargs):
+    print('not found !!')
     print(str(request))
     return text(request)
 
@@ -22,30 +20,24 @@ class Router:
     routes = []
     strictSlash = False
 
-    def __init__(self):
-        self.namedRoutes = dict()
-        self.not_found = not_found
-
     def register(self, path: str, handler):
         route = Route(self, handler).path(path)
         self.routes.append(route)
         return route
 
+    @lru_cache(maxsize=5)
     def match(self, request, match: RouteMatch) -> bool:
         for route in self.routes:
             if route.match(request, match):
                 return True
-        if self.not_found:
-            match.handler = self.not_found
-            return True
         return False
 
     async def handler(self, request, response_writer):
         match = RouteMatch()
         if self.match(request, match):
             handler = match.handler
-        if not handler:
-            handler = self.not_found
+        if not match.handler:
+            handler = not_found
         try:
             response = await handler(request, *match.vars)
         except Exception as e:
@@ -58,15 +50,22 @@ class Router:
             return self.parent.getRegexpGroup()
         return None
 
+    def reset(self):
+        from importlib import import_module
+
+        def reimport(func):
+            module = import_module(func.__module__)
+            return getattr(module, func.__name__)
+        for route in self.routes:
+            route.handler = reimport(route.handler)
+        self.match.cache_clear()
+
 
 class RouteRegexpGroup:
     def __init__(self, host=None, path=None, queries=None):
-        host = None
-        path = None
-        queries = None
-
-    def setMatch(self, request, match: RouteMatch, route):
-        pass
+        self.host = host
+        self.path = path
+        self.queries = queries
 
 
 class Route:
@@ -78,17 +77,15 @@ class Route:
         self.regexp = None
 
     def path(self, tpl):
-        rr = self.addRegexpMatcher(tpl)
+        self.addRegexpMatcher(tpl)
         return self
 
     def addRegexpMatcher(self, tpl: str):
         self.regexp = self.getRegexpGroup()
         rr = regexp(
             tpl,
-            matchHost=False,
             matchPrefix=False,
-            strictSlash=False,
-            useEncodedPath=False)
+            strictSlash=False)
         self.matchers.append(rr)
 
     def getRegexpGroup(self) -> RouteRegexpGroup:
@@ -108,84 +105,41 @@ class Route:
         for m in self.matchers:
             if not m.match(request, match):
                 return False
-        if not match.route:
-            match.route = self
         if not match.handler:
             match.handler = self.handler
         if not match.vars:
             vars = m.regexp.findall(request.path)
             if vars:
                 match.vars = vars[0]
-        if self.regexp:
-            self.regexp.setMatch(request, match, self)
         return True
 
 
 class RouteRegexp:
-    def __init__(self, template, regexp, reverse, names, strictSlash=False):
+    def __init__(self, template, regexp, reverse, strictSlash=False):
         self.template = template
         self.regexp = regexp
         self.reverse = reverse
         self.strictSlash = strictSlash
-        self.names = names
 
     def match(self, request, match: RouteMatch) -> bool:
         path = request.path
         return self.regexp.match(path)
 
 
-
 def regexp(tpl: str,
-           matchHost: bool=False,
            matchPrefix: bool=False,
-           matchQuery: bool=False,
-           strictSlash: bool=False,
-           useEncodedPath: bool=False) -> RouteRegexp:
-    idxs = braceIndices(tpl)
+           strictSlash: bool=False) -> RouteRegexp:
 
-    defaultPattern = "[^/]+"
-    if matchQuery:
-        defaultPattern = "[^?&]*"
-    elif matchHost:
-        defaultPattern = "[^.]+"
-        matchPrefix = False
-    # Only match strict slash if not matching
-    if matchPrefix or matchHost or matchQuery:
-        strictSlash = False
+    pattern = r'\{(.*?)\}'
+    reverse = ''
 
-    end = 0
-    names = []
-    pattern = '^'
-    reverse = ""
-    for i, pair in enumerate(idxs):
-        left, right = pair
-        raw = tpl[end:left]
-        end = right
-        parts = tpl[left + 1:right - 1].split(':', 1)
+    def repl(matchobj):
+        parts = matchobj.group(0)[1:-1].split(':', 1)
         name = parts[0]
-        patt = len(parts) == 2 and parts[1] or defaultPattern
-        if not name or not patt:
-            raise ValueError("missing name or pattern in %s" % tpl[left:right])
-        pattern += "%s(?P<%s>%s)" % (quote(raw), name, patt)
-        reverse = "%s%%s" % raw
-        names.append(name)
-    raw = tpl[end:]
-    pattern += quote(raw)
+        patt = len(parts) == 2 and parts[1] or '[^/]+'
+        return "(?P<%s>%s)" % (name, patt)
+    pattern = re.sub(pattern, repl, tpl)
+    if matchPrefix:
+        strictSlash = False
     reg = re.compile(pattern)
-    return RouteRegexp(tpl, reg, reverse, names, strictSlash)
-
-
-def braceIndices(string):
-    level, idx, idxs = 0, 0, []
-    for i, s in enumerate(string):
-        if s == '{':
-            level += 1
-            if level == 1:
-                idx = i
-        elif s == '}':
-            level -= 1
-            if level == 0:
-                idxs.append((idx, i + 1))
-            elif level < 0:
-                raise ValueError("unbalanced braces in %s" % s)
-    return idxs
+    return RouteRegexp(tpl, reg, reverse, strictSlash)

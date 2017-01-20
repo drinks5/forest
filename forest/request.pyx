@@ -4,10 +4,9 @@ from httptools import parse_url
 from .exceptions import InvalidUsage
 
 
-class Request:
+cdef class Request:
 
-    # def __init__(self, bytes url_bytes, object  headers, str version, object method):
-    def __init__(self, url_bytes, headers, version, method):
+    def __cinit__(self, bytes url_bytes, object headers, str version, str method):
         url_parsed = parse_url(url_bytes)
         self.path = url_parsed.path.decode('utf8')
         self.headers = headers
@@ -17,7 +16,7 @@ class Request:
         if url_parsed.query:
             self.query_string = url_parsed
 
-        self.body = None
+        self.body = b''
         self.parsed_json = None
 
     @property

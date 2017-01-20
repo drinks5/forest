@@ -9,7 +9,6 @@ install:
 	python setup.py install
 
 uninstall:
-	pip uninstall -y forest
 
 test:
 	python tests/test.py
@@ -25,3 +24,7 @@ clean-pyc:
 	find . -name '*.so' -exec rm -f {} +
 	rm -rf build
 	rm -rf dist 
+	rm -rf *.egg-info
+	rm -rf ~/.pyxbld
+
+	pip uninstall -y forest || echo "pip uninstall failed"

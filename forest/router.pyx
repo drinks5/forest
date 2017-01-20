@@ -1,48 +1,45 @@
 import re
 from functools import lru_cache
-from .response import text
+from traceback import format_exc
+from .response import text, exception
+from .request cimport Request
 
 
-class RouteMatch:
-    def __init__(self):
+cdef class RouteMatch:
+    def __cinit__(self):
         self.handler = None
-        self.vars = []
+        self.vars = tuple()
 
 
-async def not_found(request, *args, **kwargs):
-    print('not found !!')
-    print(str(request))
-    return text(request)
+cdef class Router:
+    def __cinit__(self):
+        self.parent = None
+        self.routes = list()
+        self.strictSlash = False
 
-
-class Router:
-    parent = None
-    routes = []
-    strictSlash = False
-
-    def register(self, path: str, handler):
+    def register(self, str path, handler):
         route = Route(self, handler).path(path)
         self.routes.append(route)
         return route
 
     @lru_cache(maxsize=5)
-    def match(self, request, match: RouteMatch) -> bool:
+    def match(self, Request request, RouteMatch match):
         for route in self.routes:
             if route.match(request, match):
                 return True
         return False
 
-    async def handler(self, request, response_writer):
+    async def handler(self, Request request, response_writer):
         match = RouteMatch()
         if self.match(request, match):
             handler = match.handler
         if not match.handler:
-            handler = not_found
+            return response_writer(exception(404))
         try:
             response = await handler(request, *match.vars)
-        except Exception as e:
-            print(e)
-            response = text('error')
+        except:
+            info = format_exc()
+            response = text(info)
         return response_writer(response)
 
     def getRegexpGroup(self):
@@ -61,15 +58,15 @@ class Router:
         self.match.cache_clear()
 
 
-class RouteRegexpGroup:
-    def __init__(self, host=None, path=None, queries=None):
+cdef class RouteRegexpGroup:
+    def __cinit__(self, host=None, path=None, queries=None):
         self.host = host
         self.path = path
         self.queries = queries
 
 
-class Route:
-    def __init__(self, router: Router, handler):
+cdef class Route:
+    def __cinit__(self, Router router, object handler):
         self.parent = router
         self.strictSlash = router.strictSlash
         self.matchers = []
@@ -80,12 +77,12 @@ class Route:
         self.addRegexpMatcher(tpl)
         return self
 
-    def addRegexpMatcher(self, tpl: str):
+    def addRegexpMatcher(self, str tpl):
         self.regexp = self.getRegexpGroup()
-        rr = regexp(
-            tpl,
-            matchPrefix=False,
-            strictSlash=False)
+        rr = self.get_regexp(
+                tpl,
+                matchPrefix=False,
+                strictSlash=False)
         self.matchers.append(rr)
 
     def getRegexpGroup(self) -> RouteRegexpGroup:
@@ -101,45 +98,42 @@ class Route:
                 host=regexp.host, path=regexp.path, queries=regexp.queries)
         return self.regexp
 
-    def match(self, request, match: RouteMatch) -> bool:
+    def get_regexp(self, tpl, matchPrefix=False, strictSlash=False):
+
+        pattern = r'\{(.*?)\}'
+        reverse = ''
+
+        def repl(matchobj):
+            parts = matchobj.group(0)[1:-1].split(':', 1)
+            name = parts[0]
+            patt = len(parts) == 2 and parts[1] or '[^/]+'
+            return "(?P<%s>%s)" % (name, patt)
+        pattern = re.sub(pattern, repl, tpl)
+        if matchPrefix:
+            strictSlash = False
+        reg = re.compile(pattern)
+        return RouteRegexp(tpl, reg, reverse, strictSlash)
+
+    def match(self, Request request, RouteMatch match):
         for m in self.matchers:
             if not m.match(request, match):
                 return False
         if not match.handler:
             match.handler = self.handler
         if not match.vars:
-            vars = m.regexp.findall(request.path)
+            vars = m.pattern.findall(request.path)
             if vars:
                 match.vars = vars[0]
         return True
 
 
 class RouteRegexp:
-    def __init__(self, template, regexp, reverse, strictSlash=False):
+    def __init__(self, str template, object regexp, object reverse, bint strictSlash=False):
         self.template = template
-        self.regexp = regexp
+        self.pattern = regexp
         self.reverse = reverse
         self.strictSlash = strictSlash
 
-    def match(self, request, match: RouteMatch) -> bool:
+    def match(self, Request request, RouteMatch match):
         path = request.path
-        return self.regexp.match(path)
-
-
-def regexp(tpl: str,
-           matchPrefix: bool=False,
-           strictSlash: bool=False) -> RouteRegexp:
-
-    pattern = r'\{(.*?)\}'
-    reverse = ''
-
-    def repl(matchobj):
-        parts = matchobj.group(0)[1:-1].split(':', 1)
-        name = parts[0]
-        patt = len(parts) == 2 and parts[1] or '[^/]+'
-        return "(?P<%s>%s)" % (name, patt)
-    pattern = re.sub(pattern, repl, tpl)
-    if matchPrefix:
-        strictSlash = False
-    reg = re.compile(pattern)
-    return RouteRegexp(tpl, reg, reverse, strictSlash)
+        return self.pattern.match(path)

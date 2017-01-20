@@ -1,10 +1,10 @@
 from functools import partial, wraps
-
+import pyximport
 import uvloop
-import asyncio
 
+pyximport.install()
 from .protocol import HttpProtocol
-from .routers import Router
+from .router import Router
 
 
 class Signal:
@@ -21,12 +21,12 @@ class Forest(object):
         self.loop = uvloop.new_event_loop()
 
     def route(self, path):
-        def handler(_handler):
-            self.router.register(path, _handler)
+        def handler(f):
+            self.router.register(path, f)
 
-            @wraps(_handler)
+            @wraps(f)
             def inner(*args, **kwargs):
-                return _handler(*args, **kwargs)
+                return f(*args, **kwargs)
 
             return inner
 

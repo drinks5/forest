@@ -1,3 +1,5 @@
+from .response import ALL_STATUS_CODES
+
 class SanicException(Exception):
     def __init__(self, message, status_code=None):
         super().__init__(message)
@@ -27,3 +29,9 @@ class RequestTimeout(Exception):
 
 class RouterError(Exception):
     pass
+
+
+class HttpError(Exception):
+    def __init__(self, status_code, *args, **kwargs):
+        reason = ALL_STATUS_CODES[status_code]
+        super().__init__(reason)

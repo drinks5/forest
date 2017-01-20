@@ -5,6 +5,6 @@ from Cython.Build import cythonize
 #     "forest.app",
 #     ["forest/app.pyx"], )])
 
-# ext_modules = cythonize("forest/*.pyx")
-# setup(packages=['forest'], name="forest", ext_modules=ext_modules)
-setup(packages=['forest'], name="forest")
+ext_modules = cythonize("forest/*.pyx")
+setup(packages=['forest'], name="forest", ext_modules=ext_modules)
+# setup(packages=['forest'], name="forest", )

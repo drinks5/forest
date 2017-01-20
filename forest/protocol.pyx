@@ -1,86 +1,73 @@
 
 import asyncio
-import httptools
 from httptools import HttpRequestParser
-from datetime import datetime
+from multidict import CIMultiDict
 
 from .request import Request
-from .exceptions import *
+from .exceptions import HttpError
 from .utils import log
-from .response import text
+from .response import text, exception
+from .router import Router
 
 
-class CIMultiDict(dict):
-    pass
-
-
-class HttpProtocolMixin:
-    def __init__(self, *, loop, router, signal):
+cdef class HttpProtocolMixin:
+    def __cinit__(self, *, object loop, Router router, object signal):
         self.loop = loop
         self.parser = HttpRequestParser(self)
         self.router = router
         self.signal = signal
         self.connections = set()
-        self.request_timeout = 0
+        self.request_timeout = 10
         self.url = b''
         self.headers = []
         self._last_request_time = 0
-        self._request_handler_task=None
+        self._request_handler_task = None
         self._total_request_size = 0
         self.request_max_size = 65535
+        self._timeout_handler = None
+        self.time = loop.time
+        self.request = None
 
-
-    def connection_made(self, transport):
+    def connection_made(self, object transport):
         self.connections.add(self)
-        # self._timeout_handler = self.loop.call_later(
-        #     self.request_timeout, self.connection_timeout)
+        self._timeout_handler = self.loop.call_later(
+            self.request_timeout, self.connection_timeout)
         self.transport = transport
-        self._last_request_time = self.update_time
+        self._last_request_time = self.time()
 
-    def connection_lost(self, exc):
+    def connection_lost(self, object exc):
         self.connections.discard(self)
-        # self._timeout_handler.cancel()
+        self._timeout_handler.cancel()
         self.cleanup()
 
     def connection_timeout(self):
         # Check if
-        time_elapsed = self.update_time - self._last_request_time
-        if time_elapsed < self.request_timeout:
-            time_left = self.request_timeout - time_elapsed
-            self._timeout_handler = \
-                self.loop.call_later(time_left, self.connection_timeout)
-        else:
+        time_elapsed = self.time() - self._last_request_time
+        if time_elapsed >= self.request_timeout:
             if self._request_handler_task:
                 self._request_handler_task.cancel()
-            exception = RequestTimeout('Request Timeout')
+            exception = HttpError(408)
             self.write_error(exception)
 
-    def data_received(self, data):
+    def data_received(self, bytes data):
         # Check for the request itself getting too large and exceeding
         # memory limits
         self._total_request_size += len(data)
         if self._total_request_size > self.request_max_size:
-            exception = PayloadTooLarge('Payload Too Large')
+            exception = HttpError(413)
             self.write_error(exception)
-
-        # Create parser if this is the first time we're receiving data
-        if self.parser is None:
-            assert self.request is None
-            self.headers = []
-            self.parser = HttpRequestParser(self)
-
         try:
             self.parser.feed_data(data)
-        except HttpParserError:
-            exception = InvalidUsage('Bad Request')
+        except Exception:
+            exception = HttpError(400)
             self.write_error(exception)
 
-    def on_url(self, url):
+    def on_url(self, bytes url):
         self.url = url
 
-    def on_header(self, name, value):
+    def on_header(self, bytes name, bytes value):
         if name == b'Content-Length' and int(value) > self.request_max_size:
-            exception = PayloadTooLarge('Payload Too Large')
+            exception = HttpError(431)
             self.write_error(exception)
 
         self.headers.append((name.decode(), value.decode('utf-8')))
@@ -97,11 +84,8 @@ class HttpProtocolMixin:
             method=self.parser.get_method().decode()
         )
 
-    def on_body(self, body):
-        if self.request.body:
-            self.request.body += body
-        else:
-            self.request.body = body
+    def on_body(self, bytes body):
+        self.request.body += body
 
     def on_message_complete(self):
         self._request_handler_task = self.loop.create_task(
@@ -121,28 +105,35 @@ class HttpProtocolMixin:
                 self.transport.close()
             else:
                 # Record that we received data
-                self._last_request_time = self.update_time
+                self._last_request_time = self.time()
                 self.cleanup()
         except Exception:
             from traceback import format_exc
             e = format_exc()
             self.bail_out(
-                "Writing response failed, connection closed {}".format(e))
+                b"Writing response failed, connection closed %s" % e)
 
-    def write_error(self, exception):
+    def write_error(self, object exc):
         try:
-            response = text(str(exception))
+            status_code = getattr(exc, 'status_code', None)
+            if status_code:
+                response = exception(status_code)
+            else:
+                response = text(str(exception))
+            from traceback import format_exc
+            e = format_exc()
+            print(e)
 
             version = self.request.version if self.request else '1.1'
             self.transport.write(response.output(version))
             self.transport.close()
         except Exception as e:
             self.bail_out(
-                "Writing error failed, connection closed {}".format(e))
+                b"Writing error failed, connection closed %s" % e)
 
-    def bail_out(self, message):
-        exception = ServerError(message)
-        self.write_error(exception)
+    def bail_out(self, bytes message):
+        exception = HttpError(500)
+        self._write_error(exception)
         log.error(message)
 
     def cleanup(self):
@@ -163,7 +154,6 @@ class HttpProtocolMixin:
             return True
         return False
 
+
 class HttpProtocol(HttpProtocolMixin, asyncio.Protocol):
-    @property
-    def update_time(self):
-        return datetime.now().timestamp()
+    pass

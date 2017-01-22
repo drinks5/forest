@@ -18,3 +18,5 @@ cdef class HttpProtocolMixin:
         int request_max_size
         object time
         Request request
+        bint _cleaned
+

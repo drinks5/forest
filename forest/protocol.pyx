@@ -13,13 +13,11 @@ from .router import Router
 cdef class HttpProtocolMixin:
     def __cinit__(self, *, object loop, Router router, object signal):
         self.loop = loop
-        self.parser = HttpRequestParser(self)
         self.router = router
         self.signal = signal
         self.connections = set()
         self.request_timeout = 10
         self.url = b''
-        self.headers = []
         self._last_request_time = 0
         self._request_handler_task = None
         self._total_request_size = 0
@@ -27,6 +25,7 @@ cdef class HttpProtocolMixin:
         self._timeout_handler = None
         self.time = loop.time
         self.request = None
+        self.setup()
 
     def connection_made(self, object transport):
         self.connections.add(self)
@@ -56,6 +55,8 @@ cdef class HttpProtocolMixin:
         if self._total_request_size > self.request_max_size:
             exception = HttpError(413)
             self.write_error(exception)
+        if self._cleaned:
+            self.setup()
         try:
             self.parser.feed_data(data)
         except Exception:
@@ -143,6 +144,12 @@ cdef class HttpProtocolMixin:
         self.headers = None
         self._request_handler_task = None
         self._total_request_size = 0
+        self._cleaned = True
+
+    def setup(self):
+        self.parser = HttpRequestParser(self)
+        self.headers = []
+        self.cleanup = False
 
     def close_if_idle(self):
         """

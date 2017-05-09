@@ -1,0 +1,9 @@
+build/
+dist/
+http-parser*
+*.egg-info
+*.egg
+*.pyc
+__pycache__
+*.so
+.tox

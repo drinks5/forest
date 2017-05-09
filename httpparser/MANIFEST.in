@@ -1,0 +1,10 @@
+recursive-include httpparser *
+recursive-include http-parser-2.3 *
+
+prune build
+prune dist
+
+recursive-exclude http-parser-2.3 test test_g test_fast url_parser url_parser_g
+recursive-exclude http-parser-2.3 parsertrace parsertrace_g
+global-exclude *.tar* *.pyc *.so *.o *.a _cffi_*.c
+prune httpparser_cffi.egg-info

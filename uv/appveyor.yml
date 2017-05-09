@@ -1,0 +1,80 @@
+environment:
+  global:
+    CMD_IN_ENV: "cmd /E:ON /V:ON /C .\\appveyor\\run_with_env.cmd"
+
+  matrix:
+    - PYTHON: "C:\\Python27"
+      PYTHON_VERSION: "2.7.x"
+      PYTHON_ARCH: "32"
+
+    - PYTHON: "C:\\Python27-x64"
+      PYTHON_VERSION: "2.7.x"
+      PYTHON_ARCH: "64"
+
+    - PYTHON: "C:\\Python33"
+      PYTHON_VERSION: "3.3.x"
+      PYTHON_ARCH: "32"
+
+    - PYTHON: "C:\\Python33-x64"
+      PYTHON_VERSION: "3.3.x"
+      PYTHON_ARCH: "64"
+
+    - PYTHON: "C:\\Python34"
+      PYTHON_VERSION: "3.4.x"
+      PYTHON_ARCH: "32"
+
+    - PYTHON: "C:\\Python34-x64"
+      PYTHON_VERSION: "3.4.x"
+      PYTHON_ARCH: "64"
+
+    - PYTHON: "C:\\Python35"
+      PYTHON_VERSION: "3.5.x"
+      PYTHON_ARCH: "32"
+
+    - PYTHON: "C:\\Python35-x64"
+      PYTHON_VERSION: "3.5.x"
+      PYTHON_ARCH: "64"
+
+    - PYTHON: "C:\\PyPy-401"
+      PYTHON_PYPY: "pypy"
+      PYTHON_PYPY_VERSION: "4.0.1"
+      PYTHON_VERSION: "2.7.10"
+      PYTHON_ARCH: "32"
+
+    # skipping – we are getting some strange errors here
+    #- PYTHON: "C:\\PyPy3-240"
+    #  PYTHON_PYPY: "pypy3"
+    #  PYTHON_PYPY_VERSION: "2.4.0"
+    #  PYTHON_VERSION: "3.2.5"
+    #  PYTHON_ARCH: "32"
+
+
+install:
+  - ECHO "Filesystem root:"
+  - ps: "ls \"C:/\""
+
+  - ECHO "Installed SDKs:"
+  - ps: "ls \"C:/Program Files/Microsoft SDKs/Windows\""
+
+  - "C:\\Python35\\python.exe appveyor\\install-pypy.py"
+
+  - ps: if (-not(Test-Path($env:PYTHON))) { & appveyor\install.ps1 }
+
+  - "SET PATH=%PYTHON%;%PYTHON%\\Scripts;%PYTHON%\\bin;%PATH%"
+  - "python --version"
+  - "python -c \"import struct; print(struct.calcsize('P') * 8)\""
+  - "%CMD_IN_ENV% pip install -r dev-requirements.txt"
+
+build_script:
+  - "SET APPVEYOR=True"
+  - "%CMD_IN_ENV% python setup.py build"
+
+test_script:
+  - "%CMD_IN_ENV% python setup.py nosetests --verbosity=2"
+
+after_test:
+  - "C:\\Python35\\python.exe appveyor\\build.py"
+  - ps: "ls dist"
+
+artifacts:
+  - path: dist\*

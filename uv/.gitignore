@@ -1,0 +1,24 @@
+# IDE
+.idea
+
+# Python
+*.pyc
+*.pyd
+*.so
+
+__pycache__
+
+build
+dist
+deps
+
+uvcffi/__init__.py
+
+MANIFEST
+.tox
+
+.coverage
+
+_uvcffi*
+
+playground

@@ -25,14 +25,17 @@ import traceback
 import warnings
 import weakref
 import asyncio
+from time import monotonic
 
 from . import base, common, error, library, events
 from .dns import AddressFamilies, getaddrinfo
 from .library import ffi, lib
-from .check import Check
+from .handles.check import Check
+from .handles.idle import Idle
 from .handles.tcp import TCP
 from .server import Server
 from .common import ssl_SSLContext, has_SO_REUSEPORT, col_Iterable, logger, iscoroutinefunction, iscoroutine
+
 
 def _is_dgram_socket(sock):
     # Linux's socket.type is a bitmask that can include extra info
@@ -302,6 +305,23 @@ class Loop(object):
 
         self.excepthook = default_excepthook
 
+        self._ready = collections.deque()
+        self._ready_len = 0
+        self.slow_callback_duration = 0.1
+
+        self._closed = 0
+        self._debug = 0
+        self._thread_is_main = 0
+        self._thread_id = 0
+        self._running = 0
+        self._stopping = 0
+
+        self._coroutine_wrapper_set = False
+
+        self._signal_handlers = None
+
+
+
         self._debug_exception_handler_cnt = 0
         if hasattr(sys, 'get_asyncgen_hooks'):
             # Python >= 3.6
@@ -313,12 +333,13 @@ class Loop(object):
 
         # Set to True when `loop.shutdown_asyncgens` is called.
         self._asyncgens_shutdown_called = False
+        self._queued_streams = set()
 
-        self.handler_check__exec_writes = UVCheck.new(
-            self,
-            new_MethodHandle(
-                self, "loop._exec_queued_writes",
-                <method_t>self._exec_queued_writes, self))
+        self.handler_idle = Idle(
+            self, self._on_idle)
+
+        self.handler_check__exec_writes = Check(
+            self, self._exec_queued_writes)
 
         """
         If an exception occurs during the execution of a callback this
@@ -394,6 +415,78 @@ class Loop(object):
         self.pending_callbacks = collections.deque()
         self.pending_callbacks_lock = threading.RLock()
         self._debug = False
+
+    def _on_idle(self, *args):
+        popleft = self._ready.popleft
+        ntodo = len(self._ready)
+        if self._debug:
+            for i in range(ntodo):
+                handler = popleft()
+                if handler.cancelled == 0:
+                    try:
+                        started = monotonic()
+                        handler._run()
+                    except BaseException as ex:
+                        self._stop(ex)
+                        return
+                    else:
+                        delta = monotonic() - started
+                        if delta > self.slow_callback_duration:
+                            logger.warning(
+                                'Executing %r took %.3f seconds',
+                                handler, delta)
+
+        else:
+            for i in range(0, ntodo):
+                handler = popleft()
+                if handler.cancelled == 0:
+                    try:
+                        handler._run()
+                    except BaseException as ex:
+                        self._stop(ex)
+                        return
+
+        if len(self._queued_streams):
+            self._exec_queued_writes()
+
+        self._ready_len = len(self._ready)
+        if self._ready_len == 0 and self.handler_idle.running:
+            self.handler_idle.stop()
+
+        if self._stopping:
+            self.stop()
+
+    def _stop(self, exc):
+        if exc is not None:
+            self._last_error = exc
+        if self._stopping == 1:
+            return
+        self._stopping = 1
+        if not self.handler_idle.running:
+            self.handler_idle.start()
+
+    def _exec_queued_writes(self, *args):
+        if len(self._queued_streams) == 0:
+            if self.handler_check__exec_writes.running:
+                self.handler_check__exec_writes.stop()
+            return
+
+        if self._debug:
+            queued_len = len(self._queued_streams)
+
+        for stream in self._queued_streams:
+            stream._exec_write()
+
+        if self._debug:
+            if len(self._queued_streams) != queued_len:
+                raise RuntimeError(
+                    'loop._queued_streams are not empty after '
+                    '_exec_queued_writes')
+
+        self._queued_streams.clear()
+
+        if self.handler_check__exec_writes.running:
+            self.handler_check__exec_writes.stop()
 
     @property
     def closed(self):
@@ -1052,7 +1145,7 @@ class Loop(object):
                         assert isinstance(addr, tuple) and len(addr) == 2, (
                             '2-tuple is expected')
 
-                        infos = yield from _ensure_resolved(
+                        infos = await _ensure_resolved(
                             addr, family=family, type=socket.SOCK_DGRAM,
                             proto=proto, flags=flags, loop=self)
                         if not infos:
@@ -1098,7 +1191,7 @@ class Loop(object):
                     if local_addr:
                         sock.bind(local_address)
                     if remote_addr:
-                        yield from self.sock_connect(sock, remote_address)
+                        await self.sock_connect(sock, remote_address)
                         r_addr = remote_address
                 except OSError as exc:
                     if sock is not None:
@@ -1128,7 +1221,7 @@ class Loop(object):
                              remote_addr, transport, protocol)
 
         try:
-            yield from waiter
+            await waiter
         except:
             transport.close()
             raise
@@ -1192,7 +1285,7 @@ class Loop(object):
 
         getattr(asyncio, '_set_running_loop', None) is not None and asyncio._set_running_loop(self)
         try:
-            self.__run(mode)
+            self.run()
         finally:
             getattr(asyncio, '_set_running_loop', None) is not None and asyncio._set_running_loop(None)
 
@@ -1207,6 +1300,7 @@ class Loop(object):
         if self._last_error is not None:
             # The loop was stopped with an error with 'loop._stop(error)' call
             raise self._last_error
+
 
 def _sighandler_noop(signum, frame):
     """Dummy signal handler."""

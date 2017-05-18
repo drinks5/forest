@@ -54,7 +54,7 @@ def main():
     sigint = uv.Signal()
     sigint.start(uv.Signals.SIGINT, on_signal=on_quit)
 
-    loop.run()
+    loop.run_forever()
 
 
 if __name__ == '__main__':

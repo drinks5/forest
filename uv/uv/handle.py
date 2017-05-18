@@ -164,6 +164,16 @@ class UVHandle(object):
         return self.base_handle.closing
 
     @property
+    def running(self):
+        """
+        :readonly:
+            True
+        :type:
+            bool
+        """
+        return not self.base_handle.closing
+
+    @property
     def closed(self):
         """
         :readonly:
